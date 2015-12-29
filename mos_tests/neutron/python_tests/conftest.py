@@ -85,6 +85,3 @@ def setup(request, env_name, snapshot_name, env, os_conn):
     if env_name:
         revert_snapshot(request, env_name, snapshot_name)
     yield
-    if not env_name:
-        clear_l3_ban(env, os_conn)
-        clean_os(os_conn)
