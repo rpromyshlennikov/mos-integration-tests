@@ -189,7 +189,7 @@ class Environment(EnvironmentBase):
         self.warm_shutdown_nodes(devops_nodes)
         self.warm_start_nodes(devops_nodes)
 
-    def check_nodes_get_offline_state(self, node_ips=[]):
+    def check_nodes_get_offline_state(self, node_ips=()):
         nodes_states = [not x.data['online']
                         for x in self.get_all_nodes()
                         if x.data['ip'] in node_ips]

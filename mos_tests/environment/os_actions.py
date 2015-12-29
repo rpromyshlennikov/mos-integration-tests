@@ -164,13 +164,13 @@ class OpenStackActions(object):
                 raise Exception('Server {} status is error'.format(srv.name))
 
         wait(is_server_active, timeout_seconds=timeout, sleep_seconds=5,
-            waiting_for='instance {0} status change to ACTIVE'.format(
+             waiting_for='instance {0} status change to ACTIVE'.format(
                 name))
 
         # wait for ssh ready
         if self.env is not None:
             wait(lambda: self.is_server_ssh_ready(srv), timeout_seconds=60,
-                waiting_for='server avaliable via ssh')
+                 waiting_for='server avaliable via ssh')
         logger.info('the server {0} is ready'.format(srv.name))
         return self.get_instance_detail(srv.id)
 
