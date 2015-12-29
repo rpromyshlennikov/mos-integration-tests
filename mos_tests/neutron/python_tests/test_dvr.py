@@ -40,14 +40,14 @@ class TestDVRBase(base.TestBase):
 
     def reset_computes(self, hostnames, env_name):
 
-        def get_hipervisors():
+        def get_hypervisors():
             return [x for x in self.os_conn.nova.hypervisors.list()
                     if x.hypervisor_hostname in hostnames]
 
         node_states = defaultdict(list)
 
         def is_nodes_started():
-            for hypervisor in get_hipervisors():
+            for hypervisor in get_hypervisors():
                 state = hypervisor.state
                 prev_states = node_states[hypervisor.hypervisor_hostname]
                 if len(prev_states) == 0 or state != prev_states[-1]:
@@ -74,7 +74,7 @@ class TestDVR(TestDVRBase):
     @pytest.mark.parametrize('dvr_router', (True, False),
                              ids=('distributed router', 'centralized_router'))
     def test_north_south_connectivity(self, variables, floating_ip,
-                                         dvr_router):
+                                      dvr_router):
         """Check North-South connectivity
 
         Scenario:
@@ -83,7 +83,7 @@ class TestDVR(TestDVRBase):
                 router type `dvr_router`
             3. Add interfaces to the router01 with net01__subnet
             4. Boot vm_1 in the net01
-            5. Add floationg ip if case of `floating_ip` arg is True
+            5. Add floating ip if case of `floating_ip` arg is True
             6. Go to the vm_1
             7. Ping 8.8.8.8
         """
@@ -156,6 +156,110 @@ class TestDVR(TestDVRBase):
         time.sleep(60)
 
         self.check_ping_from_vm(server, vm_keypair=self.instance_keypair)
+
+
+class TestSNAT(TestDVRBase):
+    def _prepare_openstack_env(self, distributed_router=False,
+                               assign_floating_ip=False):
+        """Prepare OpenStack for scenarios run
+
+        Steps:
+            1. Revert snapshot with neutron cluster
+            2. Create network net01, subnet net01_subnet
+            3. Create router with gateway to external net and
+               interface with net01
+            4. Launch instance and associate floating IP
+            4. Check ping from instance google DNS
+            6. Check run dhcp-client in instance's console:
+               sudo cirros-dhcpc up eth0
+        """
+        self.zone = self.os_conn.nova.availability_zones.find(zoneName="nova")
+        self.security_group = self.os_conn.create_sec_group_for_ssh()
+        self.instance_keypair = self.os_conn.create_key(key_name='instancekey')
+        net, subnet = self.create_internal_network_with_subnet(1)
+        router = self.os_conn.create_router(name='router01',
+                                            distributed=distributed_router)
+        self.os_conn.router_gateway_add(
+            router_id=router['router']['id'],
+            network_id=self.os_conn.ext_network['id'])
+
+        self.os_conn.router_interface_add(
+            router_id=router['router']['id'],
+            subnet_id=subnet['subnet']['id'])
+
+        self.server = self.os_conn.create_server(
+            name='server01',
+            availability_zone=self.zone.zoneName,
+            key_name=self.instance_keypair.name,
+            nics=[{'net-id': net['network']['id']}],
+            security_groups=[self.security_group.id])
+
+        if assign_floating_ip:
+            self.os_conn.assign_floating_ip(self.server)
+        else:
+            self.check_ping_from_vm(self.server,
+                                    vm_keypair=self.instance_keypair)
+
+    def find_snat_controller(self, excluded=()):
+        """Find controller with SNAT service.
+
+        :param excluded: excluded nodes fqdns
+        :returns: controller node with SNAT
+        """
+        all_controllers = self.env.get_nodes_by_role('controller')
+        controller_with_snat = None
+        for controller in all_controllers:
+            if controller.data['fqdn'] in excluded:
+                continue
+            with controller.ssh() as remote:
+                cmd = 'ip net | grep snat'
+                res = remote.execute(cmd)
+                if res['exit_code'] == 0:
+                    controller_with_snat = controller
+                    break
+        return controller_with_snat
+
+    @pytest.mark.need_devops
+    def test_shutdown_snat_controller(self, env_name):
+        """Shutdown controller with SNAT-namespace and check it reschedules.
+
+        Scenario:
+            1. Create net01, subnet net01__subnet for it
+            2. Create router01 with external network and
+                router type Distributed
+            3. Add interfaces to the router01 with net01__subnet
+            4. Boot vm_1 in the net01
+            5. Go to the vm_1 and ping 8.8.8.8
+            6. Find controller with SNAT-namespace
+               and kill this controller with virsh:
+               ``ip net | grep snat`` on all controllers
+               ``virsh destroy <controller_with_snat>``
+            7. Check SNAT moved to another
+            8. Go to the vm_1 and ping 8.8.8.8
+
+        Duration 10m
+
+        """
+        self._prepare_openstack_env(True, True)
+        self.check_vm_is_available(self.server, **self.cirros_creds)
+        self.check_ping_from_cirros(self.server)
+        controller_with_snat = self.find_snat_controller()
+        devops_node = DevopsClient.get_node_by_mac(
+            env_name=env_name, mac=controller_with_snat.data['mac'])
+        self.env.destroy_nodes([devops_node])
+        wait_msg = "Waiting for snat is rescheduled"
+        wait(
+            lambda: self.find_snat_controller(
+                excluded=[controller_with_snat.data['fqdn']]),
+            timeout_seconds=60 * 3,
+            sleep_seconds=(1, 60, 5),
+            waiting_for=wait_msg)
+        new_controller_with_snat = self.find_snat_controller(
+            excluded=[controller_with_snat.data['fqdn']])
+        self.check_ping_from_cirros(self.server)
+        assert (
+            controller_with_snat.data['fqdn'] !=
+            new_controller_with_snat.data['fqdn'])
 
 
 @pytest.mark.check_env_('has_2_or_more_computes')
@@ -239,7 +343,7 @@ class TestDVRWestEastConnectivity(TestDVRBase):
             6. Boot vm_2 in the net02 on different compute
             7. Go to vm_1 and ping vm_2
             8. Reset computers on which vm_1 and vm_2 are
-            9. Wait some time while computers are reseting
+            9. Wait some time while computers are resetting
             10. Go to vm_2 and ping vm_1
         """
         self.check_ping_from_vm(vm=self.server1,

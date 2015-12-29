@@ -90,12 +90,12 @@ class TestBase(object):
         """Execute command on vm and return dict with results
 
         :param vm: server to execute command on
-        :param vm_keypair: keypair used dduring vm creating
+        :param vm_keypair: keypair used during vm creating
         :param command: command to execute
         :param vm_login: username to login to vm via ssh
         :param vm_password: password to login to vm via ssh
         :param timeout: type - int or None
-            - if None - execite command and return results
+            - if None - execute command and return results
             - if int - wait `timeout` seconds until command exit_code will be 0
         :returns: Dictionary with `exit_code`, `stdout`, `stderr` keys.
             `Stdout` and `stderr` are list of strings
@@ -207,7 +207,7 @@ class TestBase(object):
                 'connectivity from node with ip {1}.').format(vm_ip, srv_host)
 
             wait(lambda: remote.execute(cmd)['exit_code'] == 0,
-                 sleep_seconds=10, timeout_seconds=3 * 10,
+                 sleep_seconds=10, timeout_seconds=3 * 60,
                  waiting_for=waiting_for_msg)
         return self.check_vm_is_accessible_with_ssh(
             vm_ip, username=username, password=password, pkeys=pkeys)
