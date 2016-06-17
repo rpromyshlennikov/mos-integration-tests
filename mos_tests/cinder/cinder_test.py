@@ -42,6 +42,13 @@ def volume(os_conn):
         lambda: all([is_snapshot_deleted(os_conn, x) for x in snp_list]),
         timeout_seconds=1000,
         waiting_for='snapshots to be deleted')
+    backups_list = os_conn.cinder.backups.findall(volume_id=volume.id)
+    for backup in backups_list:
+        os_conn.cinder.backups.delete(backup)
+    common.wait(
+        lambda: all([is_backup_deleted(os_conn, x) for x in backups_list]),
+        timeout_seconds=1000,
+        waiting_for='backups to be deleted')
     os_conn.delete_volume(volume)
 
 
@@ -54,6 +61,17 @@ def is_snapshot_available(os_conn, snapshot):
 def is_snapshot_deleted(os_conn, snapshot):
     snp_ids = [s.id for s in os_conn.cinder.volume_snapshots.list()]
     return snapshot.id not in snp_ids
+
+
+def is_backup_available(os_conn, backup):
+    backup_status = os_conn.cinder.backups.get(backup.id).status
+    assert backup_status != 'error'
+    return backup_status == 'available'
+
+
+def is_backup_deleted(os_conn, backup):
+    backups_ids = [bu.id for bu in os_conn.cinder.backups.list()]
+    return backup.id not in backups_ids
 
 
 @pytest.mark.undestructive
@@ -107,3 +125,30 @@ def test_creating_multiple_snapshots(os_conn, quota, volume):
         lambda: all([is_snapshot_available(os_conn, x) for x in snp_list_2]),
         timeout_seconds=1800,
         waiting_for='new snapshots to become in available status')
+
+
+# NOTE(rpromyshlennikov): this test is not marked as @pytest.mark.undestructive
+# because it creates object storage container to store backups
+@pytest.mark.testrail_id('857215')
+def test_create_volume_backup(os_conn, volume):
+    """This test case checks creation of backup of volume
+
+        Steps:
+            1. Create a volume
+            2. Create a snapshot of the volume and check it availability
+            3. Create a backup of the snapshot and check it availability
+
+    """
+    snapshot = os_conn.cinder.volume_snapshots.create(
+        volume.id, name='volume_snapshot')
+
+    common.wait(lambda: is_snapshot_available(os_conn, snapshot),
+                timeout_seconds=300,
+                waiting_for='Snapshot to become in available status')
+
+    backup = os_conn.cinder.backups.create(
+        volume.id, name='volume_backup', snapshot_id=snapshot.id)
+
+    common.wait(lambda: is_backup_available(os_conn, backup),
+                timeout_seconds=300,
+                waiting_for='Backup to become in available status')

@@ -879,7 +879,7 @@ class OpenStackActions(object):
 
     def force_l3_reschedule(self, router_id, new_l3_agt_id=None,
                             current_l3_agt_id=None):
-        logger.info('going to reschedule the router on new agent')
+        logger.info("Going to reschedule the router on new agent")
         if current_l3_agt_id is None:
             l3_agents = self.neutron.list_l3_agent_hosting_routers(
                 router_id)['agents']
